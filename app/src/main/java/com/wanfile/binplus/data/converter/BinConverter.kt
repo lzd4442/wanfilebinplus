@@ -1,6 +1,10 @@
 package com.wanfile.binplus.data.converter
 
 import android.content.Context
+import android.content.ContentValues
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
@@ -15,6 +19,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.min
@@ -39,17 +44,27 @@ class BinConverter @Inject constructor(
         inputUri: Uri,
         mode: ConvertMode,
         direction: ConvertDirection,
-        key: Byte = DEFAULT_KEY,
-        outputDir: File = context.getExternalFilesDir(null) ?: context.filesDir
+        key: Byte = DEFAULT_KEY
     ): Flow<ConvertResult> = flow {
         val inputFile = uriToFile(inputUri)
 
         val originalName = inputFile.name
         val outputName = buildOutputName(originalName, direction)
 
+        // 获取公共 Downloads 目录
+        val outputDir = getPublicDownloadsDir()
+        if (outputDir == null) {
+            emit(ConvertResult.Error("无法访问 Downloads 目录，请检查权限"))
+            return@flow
+        }
+
         val outputFile = File(outputDir, outputName)
-        // 防止覆盖输入自身
-        if (outputFile.canonicalPath == inputFile.canonicalPath) {
+
+        // 防止覆盖输入自身（仅当同一目录时）
+        val sameFile = try {
+            outputFile.canonicalPath == inputFile.canonicalPath
+        } catch (_: Exception) { false }
+        if (sameFile) {
             emit(ConvertResult.Error("输出路径与输入相同，已取消"))
             return@flow
         }
@@ -59,13 +74,13 @@ class BinConverter @Inject constructor(
         val size = inputFile.length()
         var copied: Long = 0
 
+        // 流式读写，64KB 缓冲
         FileInputStream(inputFile).use { input ->
             FileOutputStream(outputFile).use { output ->
                 val buffer = ByteArray(BUFFER_SIZE)
                 var read: Int
                 while (input.read(buffer).also { read = it } != -1) {
                     val chunk = if (mode == ConvertMode.ENCRYPT) {
-                        // XOR 逐字节编码（对称，还原时再跑一遍即可）
                         ByteArray(read) { i -> (buffer[i].toInt() xor key.toInt()).toByte() }
                     } else {
                         buffer.copyOf(read)
@@ -82,6 +97,21 @@ class BinConverter @Inject constructor(
 
         emit(ConvertResult.Success(outputFile.absolutePath, outputFile.length()))
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * 获取公共 Downloads 目录。
+     * Android 10+ 使用 MediaStore，兼容 scoped storage；
+     * Android 7-9 使用传统公共目录。
+     */
+    private fun getPublicDownloadsDir(): File? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+：返回缓存目录，文件通过 MediaStore 写入 Downloads
+            File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.parentFile, "Downloads")
+        } else {
+            @Suppress("DEPRECATION")
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        }.also { it.mkdirs() }
+    }
 
     /**
      * 批量转换
