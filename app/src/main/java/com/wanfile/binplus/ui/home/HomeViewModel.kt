@@ -25,7 +25,8 @@ data class HomeUiState(
     val isConverting: Boolean = false,
     val progress: Int = 0,
     val message: String? = null,
-    val lastOutputPath: String? = null
+    val lastOutputPath: String? = null,
+    val lastOutputName: String? = null
 )
 
 @HiltViewModel
@@ -62,7 +63,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun clearMessage() {
-        _uiState.update { it.copy(message = null, lastOutputPath = null) }
+        _uiState.update { it.copy(message = null, lastOutputPath = null, lastOutputName = null) }
     }
 
     fun startConvert() {
@@ -107,7 +108,8 @@ class HomeViewModel @Inject constructor(
                                     it.copy(
                                         progress = 100,
                                         message = "转换完成：${record.outputName}",
-                                        lastOutputPath = result.outputPath
+                                        lastOutputPath = result.outputPath,
+                                        lastOutputName = record.outputName
                                     )
                                 }
                             }

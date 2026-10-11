@@ -1,5 +1,6 @@
 package com.wanfile.binplus.ui.home
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -7,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.material.icons.outlined.Key
@@ -36,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -47,20 +51,24 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wanfile.binplus.data.model.ConvertDirection
 import com.wanfile.binplus.data.model.ConvertMode
+import java.io.File
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +78,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // 文件选择器
     val pickLauncher = rememberLauncherForActivityResult(
@@ -78,12 +87,31 @@ fun HomeScreen(
         if (uris.isNotEmpty()) viewModel.addFiles(uris)
     }
 
-    // 成功提示
+    // 错误提示
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
-            snackbarHostState.showSnackbar(it)
+            scope.launch {
+                snackbarHostState.showSnackbar(it)
+            }
             viewModel.clearMessage()
         }
+    }
+
+    // 打开文件
+    fun openFile(path: String) {
+        val file = File(path)
+        if (!file.exists()) {
+            scope.launch {
+                snackbarHostState.showSnackbar("文件不存在：$path")
+            }
+            return
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "*/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "打开文件"))
     }
 
     Scaffold(
@@ -110,17 +138,13 @@ fun HomeScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 转换方向
             item {
-                Text(
-                    "转换方向",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionTitle("转换方向")
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DirectionChip(
@@ -138,11 +162,7 @@ fun HomeScreen(
 
             // 模式选择
             item {
-                Text(
-                    "转换模式",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionTitle("转换模式")
                 Spacer(Modifier.height(8.dp))
                 ModeCard(
                     selected = uiState.mode == ConvertMode.RAW,
@@ -151,7 +171,7 @@ fun HomeScreen(
                     description = "原样提取字节流，无损输出 .bin",
                     icon = Icons.Outlined.FlashOn
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
                 ModeCard(
                     selected = uiState.mode == ConvertMode.ENCRYPT,
                     onClick = { viewModel.setMode(ConvertMode.ENCRYPT) },
@@ -161,7 +181,7 @@ fun HomeScreen(
                 )
             }
 
-            // 密钥输入（仅加密模式）
+            // 密钥输入
             if (uiState.mode == ConvertMode.ENCRYPT) {
                 item {
                     OutlinedTextField(
@@ -182,7 +202,7 @@ fun HomeScreen(
                 }
             }
 
-            // 已选文件列表
+            // 已选文件
             if (uiState.selectedFiles.isNotEmpty()) {
                 item {
                     Row(
@@ -190,11 +210,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            "已选 ${uiState.selectedFiles.size} 个文件",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        SectionTitle("已选 ${uiState.selectedFiles.size} 个文件")
                         TextButton(onClick = viewModel::clearFiles) {
                             Text("清空")
                         }
@@ -240,6 +256,18 @@ fun HomeScreen(
                 }
             }
 
+            // 转换结果卡片
+            if (uiState.lastOutputPath != null && !uiState.isConverting) {
+                item {
+                    ResultCard(
+                        outputName = uiState.lastOutputName ?: "",
+                        outputPath = uiState.lastOutputPath!!,
+                        onOpen = { openFile(uiState.lastOutputPath!!) },
+                        onOpenFolder = { openFile(uiState.lastOutputPath!!) }
+                    )
+                }
+            }
+
             // 转换按钮
             item {
                 Button(
@@ -255,6 +283,80 @@ fun HomeScreen(
                         else "开始还原",
                         style = MaterialTheme.typography.labelLarge
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+@Composable
+private fun ResultCard(
+    outputName: String,
+    outputPath: String,
+    onOpen: () -> Unit,
+    onOpenFolder: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        )
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "✅ 转换完成",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                outputName,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(4.dp))
+
+            Text(
+                outputPath,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onOpen,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("打开")
+                }
+                OutlinedButton(
+                    onClick = onOpenFolder,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("打开位置")
                 }
             }
         }
@@ -280,10 +382,9 @@ private fun ModeCard(
             else
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ),
-        border = if (selected) androidx.compose.foundation.BorderStroke(
-            2.dp,
-            MaterialTheme.colorScheme.primary
-        ) else null
+        border = if (selected)
+            androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        else null
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -378,7 +479,9 @@ private fun SelectedFileItem(
                 uri.lastPathSegment ?: "unknown",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             IconButton(onClick = onRemove) {
                 Icon(
